@@ -1,0 +1,41 @@
+# Maven
+target/
+*.class
+*.jar
+!.mvn/wrapper/maven-wrapper.jar
+
+# IDE
+.idea/
+*.iml
+.vscode/
+*.iws
+*.ipr
+.project
+.classpath
+.settings/
+
+# Logs
+*.log
+logs/
+
+# Sistema operativo
+.DS_Store
+Thumbs.db
+
+# JMeter — resultados raw pesados (regenerables)
+jmeter/*.jtl
+jmeter/reports/
+jmeter/sweep.log
+jmeter/nohup.out
+
+# Mantenemos los CSV consolidados (son evidencia de los benchmarks, pesan poco)
+!jmeter/sweep-*.csv
+
+# Docker / Compose locales
+.env
+*.env.local
+
+# AWS — nunca commitear credenciales
+*.pem
+.aws/credentials
+aws/credentials

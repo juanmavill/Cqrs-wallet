@@ -1,0 +1,166 @@
+services:
+
+  mysql:
+    image: mysql:8.0
+    container_name: wallet-mysql
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: rootpass
+      MYSQL_DATABASE: wallet_db
+    command:
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+      - --default-authentication-plugin=mysql_native_password
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+      - ./init.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-uroot", "-prootpass"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+    networks: [wallet-net]
+
+  mongodb:
+    image: mongo:7.0
+    container_name: wallet-mongodb
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    volumes:
+      - mongo-data:/data/db
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 15s
+    deploy:
+      resources:
+        limits:
+          memory: 1024M
+    networks: [wallet-net]
+
+  rabbitmq:
+    image: rabbitmq:3.13-management
+    container_name: wallet-rabbitmq
+    restart: unless-stopped
+    environment:
+      RABBITMQ_DEFAULT_USER: guest
+      RABBITMQ_DEFAULT_PASS: guest
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    volumes:
+      - rabbit-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 15
+      start_period: 30s
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+    networks: [wallet-net]
+
+  command-service:
+    build:
+      context: .
+      dockerfile: command-service/Dockerfile
+    image: cqrs-wallet/command-service:1.0.0
+    container_name: wallet-command-service
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      JAVA_TOOL_OPTIONS: "-Xms512m -Xmx512m -XX:+UseG1GC"
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/wallet_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: rootpass
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: "5672"
+      SPRING_RABBITMQ_USERNAME: guest
+      SPRING_RABBITMQ_PASSWORD: guest
+    depends_on:
+      mysql:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+    networks: [wallet-net]
+
+  query-service:
+    build:
+      context: .
+      dockerfile: query-service/Dockerfile
+    image: cqrs-wallet/query-service:1.0.0
+    container_name: wallet-query-service
+    restart: unless-stopped
+    ports:
+      - "8082:8082"
+    environment:
+      JAVA_TOOL_OPTIONS: "-Xms512m -Xmx512m -XX:+UseG1GC"
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/wallet_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: rootpass
+      SPRING_DATA_MONGODB_URI: mongodb://mongodb:27017/wallet_read
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_PORT: "5672"
+      SPRING_RABBITMQ_USERNAME: guest
+      SPRING_RABBITMQ_PASSWORD: guest
+    depends_on:
+      mysql:
+        condition: service_healthy
+      mongodb:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+    networks: [wallet-net]
+
+  monolith-reference:
+    build:
+      context: .
+      dockerfile: monolith-reference/Dockerfile
+    image: cqrs-wallet/monolith-reference:1.0.0
+    container_name: wallet-monolith-reference
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+    environment:
+      JAVA_TOOL_OPTIONS: "-Xms512m -Xmx512m -XX:+UseG1GC"
+      SPRING_DATASOURCE_URL: jdbc:mysql://mysql:3306/wallet_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: rootpass
+    depends_on:
+      mysql:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 768M
+    networks: [wallet-net]
+
+volumes:
+  mysql-data:
+  mongo-data:
+  rabbit-data:
+
+networks:
+  wallet-net:
+    driver: bridge

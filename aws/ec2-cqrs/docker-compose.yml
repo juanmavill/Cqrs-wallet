@@ -1,0 +1,40 @@
+version: "3.8"
+
+# Despliegue en EC2-cqrs: command-service + query-service
+# Requiere variable de entorno DATA_HOST con la IP privada de EC2-data.
+# Ejemplo de arranque:
+#   DOCKERHUB_USER=tuusuario DATA_HOST=10.0.1.42 docker-compose up -d
+
+services:
+  command-service:
+    image: ${DOCKERHUB_USER}/cqrs-command-service:1.0.0
+    container_name: wallet-command-service
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      SPRING_DATASOURCE_URL: "jdbc:mysql://${DATA_HOST}:3306/wallet_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: rootpass
+      SPRING_RABBITMQ_HOST: ${DATA_HOST}
+      SPRING_RABBITMQ_PORT: "5672"
+      SPRING_RABBITMQ_USERNAME: guest
+      SPRING_RABBITMQ_PASSWORD: guest
+      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx512m -XX:+UseG1GC"
+
+  query-service:
+    image: ${DOCKERHUB_USER}/cqrs-query-service:1.0.0
+    container_name: wallet-query-service
+    restart: unless-stopped
+    ports:
+      - "8082:8082"
+    environment:
+      SPRING_DATA_MONGODB_URI: "mongodb://${DATA_HOST}:27017/wallet_read"
+      SPRING_DATASOURCE_URL: "jdbc:mysql://${DATA_HOST}:3306/wallet_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
+      SPRING_DATASOURCE_USERNAME: root
+      SPRING_DATASOURCE_PASSWORD: rootpass
+      SPRING_RABBITMQ_HOST: ${DATA_HOST}
+      SPRING_RABBITMQ_PORT: "5672"
+      SPRING_RABBITMQ_USERNAME: guest
+      SPRING_RABBITMQ_PASSWORD: guest
+      JAVA_TOOL_OPTIONS: "-Xms256m -Xmx512m -XX:+UseG1GC"
