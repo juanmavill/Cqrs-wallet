@@ -17,12 +17,12 @@ wait_port() {
   while true; do
     code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 2 "http://localhost:${port}/" 2>/dev/null || echo 000)
     if [[ "$code" =~ ^[2-5][0-9][0-9]$ ]]; then
-      echo -n " [${port} OK]"
+      echo -n " [${port} ready]"
       return 0
     fi
     tries=$((tries+1))
     if (( tries > 120 )); then
-      echo " [${port} TIMEOUT]"
+      echo " [${port} timeout]"
       return 1
     fi
     sleep 2
@@ -31,15 +31,14 @@ wait_port() {
 }
 
 reset_stack() {
-  echo ">>> Reset: docker-compose down -v && up -d"
+  echo ">>> Resetting stack"
   docker-compose down -v >/dev/null 2>&1 || true
   docker-compose up -d >/dev/null
-  echo -n ">>> Esperando a que los 3 servicios estén listos"
+  echo -n ">>> Waiting for services"
   wait_port 8080
   wait_port 8081
   wait_port 8082
   echo ""
-  # Margen extra para que el MongoSeedRunner siembre las 100 cuentas
   sleep 5
 }
 
@@ -48,28 +47,28 @@ run_jmeter() {
   local outdir="$JMETER_DIR/reports/${label}"
   local jtl="$JMETER_DIR/${label}.jtl"
   rm -rf "$outdir" "$jtl"
-  echo ">>> Corriendo ${label} (write=${write_port}, read=${read_port}, threads=${THREADS}, dur=${DURATION}s)"
+  echo ">>> Running ${label} (write=${write_port}, read=${read_port}, threads=${THREADS}, duration=${DURATION}s)"
   "$JMETER_BIN" -n -t "$JMETER_DIR/wallet.jmx" \
     -Jhost.write=localhost -Jport.write="$write_port" \
     -Jhost.read=localhost  -Jport.read="$read_port" \
     -Jthreads="$THREADS" -Jrampup="$RAMPUP" -Jduration="$DURATION" \
     -l "$jtl" -e -o "$outdir"
-  echo ">>> Reporte: $outdir/index.html"
+  echo ">>> Report: $outdir/index.html"
 }
 
 echo "=========================================="
-echo " Benchmark JUSTO  | threads=$THREADS  dur=${DURATION}s  rampup=${RAMPUP}s"
+echo " Benchmark | threads=$THREADS  duration=${DURATION}s  rampup=${RAMPUP}s"
 echo "=========================================="
 
 reset_stack
-run_jmeter "mono-fair"  8080 8080
+run_jmeter "mono-fair" 8080 8080
 
 reset_stack
-run_jmeter "cqrs-fair"  8081 8082
+run_jmeter "cqrs-fair" 8081 8082
 
 echo ""
 echo "=========================================="
-echo "Listo. Compara:"
-echo "  explorer.exe $JMETER_DIR/reports/mono-fair/index.html"
-echo "  explorer.exe $JMETER_DIR/reports/cqrs-fair/index.html"
+echo " Done. Reports:"
+echo "  $JMETER_DIR/reports/mono-fair/index.html"
+echo "  $JMETER_DIR/reports/cqrs-fair/index.html"
 echo "=========================================="

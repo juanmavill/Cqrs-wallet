@@ -1,11 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Uso:
+# Usage:
 #   ./run-sweep-benchmark.sh [duration_s] [rampup_s] [levels_csv]
 # Defaults: duration=180, rampup=30, levels=50,100,200,500,1000
-# Tiempo total estimado: ~(levels * 2 * (duration + 60)) segundos
-#   con defaults  ≈ 5 * 2 * 240 = 40 min
 
 DURATION="${1:-180}"
 RAMPUP="${2:-30}"
@@ -25,12 +23,12 @@ wait_port() {
   while true; do
     code=$(curl -s -o /dev/null -w "%{http_code}" --max-time 2 "http://localhost:${port}/" 2>/dev/null || echo 000)
     if [[ "$code" =~ ^[2-5][0-9][0-9]$ ]]; then
-      echo -n " [${port} OK]"
+      echo -n " [${port} ready]"
       return 0
     fi
     tries=$((tries+1))
     if (( tries > 120 )); then
-      echo " [${port} TIMEOUT]"
+      echo " [${port} timeout]"
       return 1
     fi
     sleep 2
@@ -39,10 +37,10 @@ wait_port() {
 }
 
 reset_stack() {
-  echo ">>> Reset"
+  echo ">>> Resetting stack"
   docker-compose down -v >/dev/null 2>&1 || true
   docker-compose up -d >/dev/null
-  echo -n ">>> Esperando readiness"
+  echo -n ">>> Waiting for services"
   wait_port 8080
   wait_port 8081
   wait_port 8082
@@ -83,7 +81,7 @@ run_jmeter() {
   local outdir="$JMETER_DIR/reports/sweep-${STAMP}-${label}-${threads}t"
   local jtl="$JMETER_DIR/sweep-${STAMP}-${label}-${threads}t.jtl"
   rm -rf "$outdir" "$jtl"
-  echo ">>> Corriendo ${label} threads=${threads} dur=${DURATION}s rampup=${RAMPUP}s"
+  echo ">>> Running ${label} threads=${threads} duration=${DURATION}s rampup=${RAMPUP}s"
   "$JMETER_BIN" -n -t "$JMETER_DIR/wallet.jmx" \
     -Jhost.write=localhost -Jport.write="$write_port" \
     -Jhost.read=localhost  -Jport.read="$read_port" \
@@ -92,7 +90,6 @@ run_jmeter() {
   extract_to_csv "$outdir/statistics.json" "$threads" "$label"
 }
 
-# Header del CSV
 echo "threads,arch,transaction,samples,error_pct,mean_ms,p50_ms,p95_ms,p99_ms,max_ms,throughput_rps" > "$CSV"
 
 IFS=',' read -ra LEVELS <<< "$THREAD_LEVELS"
@@ -103,7 +100,7 @@ START_TS=$(date +%s)
 for t in "${LEVELS[@]}"; do
   echo ""
   echo "================================================="
-  echo " THREADS = $t   (corrida $((RUN_IDX+1))-$((RUN_IDX+2)) de $TOTAL_RUNS)"
+  echo " THREADS = $t   (run $((RUN_IDX+1))-$((RUN_IDX+2)) of $TOTAL_RUNS)"
   echo "================================================="
 
   reset_stack
@@ -119,10 +116,7 @@ END_TS=$(date +%s)
 ELAPSED=$(( END_TS - START_TS ))
 echo ""
 echo "================================================="
-echo " SWEEP TERMINADO en $((ELAPSED/60)) min $((ELAPSED%60)) s"
+echo " Sweep completed in $((ELAPSED/60))m $((ELAPSED%60))s"
 echo " CSV: $CSV"
 echo "================================================="
 column -t -s ',' "$CSV"
-echo ""
-echo "Tip: para gráficas rápidas filtra TOTAL/GET/POST por arch en Excel o:"
-echo "  awk -F, '\$3==\"GET\"' \"$CSV\""

@@ -1,19 +1,23 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Sweep JMeter contra AWS.
-# Uso:
-#   ./run-sweep-aws.sh [duration_s] [rampup_s] [levels_csv]
-# Defaults: duration=120, rampup=20, levels=50,100,200,350,500
+# Usage:
+#   ./run-sweep-aws.sh <IP_CQRS> <IP_MONO> <IP_DATA> [duration_s] [rampup_s] [levels_csv]
+# Example:
+#   ./run-sweep-aws.sh 1.2.3.4 5.6.7.8 9.10.11.12 120 20 50,100,200,350,500
 
-DURATION="${1:-120}"
-RAMPUP="${2:-20}"
-THREAD_LEVELS="${3:-50,100,200,350,500}"
+if [[ $# -lt 3 ]]; then
+  echo "Usage: $0 <IP_CQRS> <IP_MONO> <IP_DATA> [duration_s] [rampup_s] [levels_csv]"
+  exit 1
+fi
 
-IP_MONO="52.23.227.193"
-IP_CQRS="18.206.94.198"
-IP_DATA="54.173.80.97"
-PEM="$HOME/.aws-keys/cqrs.pem"
+IP_CQRS="$1"
+IP_MONO="$2"
+IP_DATA="$3"
+DURATION="${4:-120}"
+RAMPUP="${5:-20}"
+THREAD_LEVELS="${6:-50,100,200,350,500}"
+PEM="${PEM:-$HOME/.aws-keys/labsuser.pem}"
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
 JMETER_DIR="$PROJECT_DIR/jmeter"
@@ -22,7 +26,6 @@ STAMP="$(date +%Y%m%d-%H%M%S)"
 CSV="$JMETER_DIR/sweep-aws-${STAMP}.csv"
 
 reset_data() {
-  echo ">>> Reseteando balances en AWS..."
   ssh -i "$PEM" -o StrictHostKeyChecking=no ec2-user@"$IP_DATA" bash << 'ENDSSH' || true
 docker exec wallet-mysql mysql -uroot -prootpass wallet_db \
   -e 'UPDATE accounts SET balance=10000.00; DELETE FROM transactions;'
@@ -65,7 +68,7 @@ run_jmeter() {
   local outdir="$JMETER_DIR/reports/sweep-aws-${STAMP}-${label}-${threads}t"
   local jtl="$JMETER_DIR/sweep-aws-${STAMP}-${label}-${threads}t.jtl"
   rm -rf "$outdir" "$jtl"
-  echo ">>> Corriendo ${label} threads=${threads} dur=${DURATION}s rampup=${RAMPUP}s"
+  echo ">>> Running ${label} threads=${threads} duration=${DURATION}s rampup=${RAMPUP}s"
   "$JMETER_BIN" -n -t "$JMETER_DIR/wallet.jmx" \
     -Jhost.write="$write_host" -Jport.write="$write_port" \
     -Jhost.read="$read_host"   -Jport.read="$read_port" \
@@ -84,7 +87,7 @@ START_TS=$(date +%s)
 for t in "${LEVELS[@]}"; do
   echo ""
   echo "================================================="
-  echo " THREADS = $t   (corrida $((RUN_IDX+1))-$((RUN_IDX+2)) de $TOTAL_RUNS)"
+  echo " THREADS = $t   (run $((RUN_IDX+1))-$((RUN_IDX+2)) of $TOTAL_RUNS)"
   echo "================================================="
 
   reset_data
@@ -100,7 +103,7 @@ END_TS=$(date +%s)
 ELAPSED=$(( END_TS - START_TS ))
 echo ""
 echo "================================================="
-echo " SWEEP TERMINADO en $((ELAPSED/60)) min $((ELAPSED%60)) s"
+echo " Sweep completed in $((ELAPSED/60))m $((ELAPSED%60))s"
 echo " CSV: $CSV"
 echo "================================================="
 column -t -s ',' "$CSV"
