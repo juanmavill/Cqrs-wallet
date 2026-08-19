@@ -13,5 +13,5 @@ services:
     environment:
       SPRING_DATASOURCE_URL: "jdbc:mysql://${DATA_HOST}:3306/wallet_db?useSSL=false&allowPublicKeyRetrieval=true&serverTimezone=UTC"
       SPRING_DATASOURCE_USERNAME: root
-      SPRING_DATASOURCE_PASSWORD: rootpass
+      SPRING_DATASOURCE_PASSWORD: ${MYSQL_ROOT_PASSWORD:?define MYSQL_ROOT_PASSWORD en .env}
       JAVA_TOOL_OPTIONS: "-Xms256m -Xmx512m -XX:+UseG1GC"

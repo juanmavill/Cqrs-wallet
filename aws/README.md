@@ -157,5 +157,5 @@ Terminate all three instances via the EC2 console and verify no resources remain
 | Connection refused from JMeter | Security group missing inbound rule | Check ports 8080–8082 |
 | Spring service exits on startup | Insufficient RAM | Reduce `JAVA_TOOL_OPTIONS` to `-Xmx256m` |
 | Unknown host in Spring logs | `DATA_HOST` not set or wrong | Verify the private IP of ec2-data |
-| MySQL access denied | Wrong password | Confirm `rootpass` in compose file |
+| MySQL access denied | Wrong password | Confirm `MYSQL_ROOT_PASSWORD` matches the value in `.env` |
 | Query service returns stale data | MongoSeedRunner ran before Mongo was ready | Restart query service: `docker-compose restart query-service` |
