@@ -106,6 +106,11 @@ compensa.
 Datos crudos: [`jmeter/sweep-20260510-214833.csv`](jmeter/sweep-20260510-214833.csv)
 (local) y [`jmeter/sweep-aws-20260511-023510.csv`](jmeter/sweep-aws-20260511-023510.csv) (AWS).
 
+Las cifras miden los caminos de peticion HTTP. La proyeccion asincrona cambio
+despues de estas corridas al anadirse el descarte de eventos atrasados, lo que
+agrega una lectura por evento en el consumidor sin afectar la latencia de las
+peticiones medidas.
+
 ---
 
 ## Stack
@@ -142,6 +147,13 @@ cuenta pueden leer el mismo saldo y validar ambos contra fondos ya comprometidos
 Con contencion alta sobre la misma fila, un bloqueo optimista con reintentos
 generaria mas trabajo desperdiciado que espera.
 
+**Por que el consumidor descarta eventos antiguos.** La cola reintenta con
+backoff y termina en una DLQ, asi que un evento puede reentregarse tarde. Como el
+evento lleva el saldo ya calculado y no un incremento, reaplicarlo es inocuo, pero
+aplicar uno *anterior* al ya proyectado dejaria un saldo obsoleto de forma
+permanente. `EventConsumer` compara la marca de tiempo y descarta lo que llega
+atrasado.
+
 **Por que se conserva el monolito.** Sin una linea base medida con la misma carga
 y las mismas herramientas, cualquier afirmacion sobre CQRS seria una suposicion.
 `monolith-reference` existe para que la comparacion sea reproducible.
@@ -153,13 +165,17 @@ y las mismas herramientas, cualquier afirmacion sobre CQRS seria una suposicion.
 Requisitos: Docker y Docker Compose.
 
 ```bash
+cp .env.example .env
 docker compose up -d --build
 ```
 
-Levanta MySQL, MongoDB, RabbitMQ y los tres servicios. Los servicios de
-infraestructura tienen `healthcheck` y las aplicaciones esperan a que esten sanos
-antes de arrancar. MySQL se siembra desde `init.sql` con cuentas `ACC001` en
-adelante.
+El compose no trae credenciales por defecto: si falta `.env` la orden falla
+indicando que variable hay que definir. Los seis contenedores declaran
+`healthcheck` y las aplicaciones esperan a que la infraestructura este sana antes
+de arrancar. MySQL se siembra desde `init.sql` con cuentas `ACC001` en adelante.
+
+Variables disponibles en [`.env.example`](.env.example): credenciales de MySQL y
+RabbitMQ y nombres de las bases de datos.
 
 | Servicio | URL |
 |---|---|
@@ -223,10 +239,16 @@ curl http://localhost:8082/api/balance/ACC001
 mvn test
 ```
 
-`command-service` cubre las reglas del lado de escritura: credito, debito, debito
-del saldo exacto, rechazo por fondos insuficientes y por cuenta inexistente,
+15 pruebas en total.
+
+`command-service` (9) cubre las reglas del lado de escritura: credito, debito,
+debito del saldo exacto, rechazo por fondos insuficientes y por cuenta inexistente,
 persistencia del movimiento y uso del bloqueo pesimista. Tambien fija el
 comportamiento del reenvio posterior al commit ante un fallo del broker.
+
+`query-service` (6) cubre la proyeccion: creacion de la primera proyeccion,
+aplicacion de un evento mas reciente, descarte de uno atrasado, reaplicacion del
+mismo evento, y la consulta de un saldo inexistente.
 
 Las pruebas de carga requieren JMeter instalado:
 
@@ -238,21 +260,23 @@ Las pruebas de carga requieren JMeter instalado:
 
 ## Limitaciones conocidas
 
-- **No hay outbox transaccional.** Si RabbitMQ esta caido justo despues del
-  commit, `AfterCommitEventForwarder` registra el error pero el evento se pierde:
-  el saldo proyectado queda desactualizado de forma permanente, sin reintento ni
-  cola de descartes. Es el hueco mas serio del diseno y cerrarlo exige persistir
-  el evento en la misma transaccion que la escritura.
+- **No hay outbox transaccional.** El lado de consumo si reintenta y descarta a
+  una DLQ, pero el de publicacion no: si RabbitMQ esta caido justo despues del
+  commit, `AfterCommitEventForwarder` registra el error y el evento se pierde, y
+  el saldo proyectado queda desactualizado de forma permanente. Es el hueco mas
+  serio del diseno y cerrarlo exige persistir el evento en la misma transaccion
+  que la escritura.
 - **El read model puede ir por detras.** Una lectura inmediatamente despues de una
   escritura puede devolver el saldo anterior. Es inherente a CQRS, no un defecto,
   pero la API no ofrece forma de pedir una lectura consistente.
-- **Credenciales embebidas en el compose.** `rootpass` y `guest/guest` estan
-  escritos en `docker-compose.yml` y en los `application.properties`. Sirve para
-  desarrollo local; no deberia usarse fuera de ahi.
-- **`query-service` y `monolith-reference` no tienen pruebas automatizadas.** La
-  cobertura actual se concentra en la logica de escritura.
-- **Los servicios Java no declaran `healthcheck` en Compose.** Solo lo hacen MySQL,
-  MongoDB y RabbitMQ, pese a que los tres exponen Actuator.
+- **La guarda de eventos atrasados asume un unico consumidor.** Lee la proyeccion
+  y despues escribe, asi que con varios consumidores en paralelo dos eventos
+  podrian intercalarse. Escalar el consumo exigiria una escritura condicional en
+  la propia base de datos.
+- **`monolith-reference` no tiene pruebas automatizadas.** Existe como linea base
+  de comparacion, no como codigo a evolucionar.
+- **Las credenciales de `.env` van en claro al contenedor.** Es aceptable en local;
+  un despliegue real deberia tomarlas de un gestor de secretos.
 - **Los numeros en AWS provienen de un entorno academico** con instancias
   limitadas; sirven para comparar las dos arquitecturas entre si, no como
   referencia absoluta de capacidad.
