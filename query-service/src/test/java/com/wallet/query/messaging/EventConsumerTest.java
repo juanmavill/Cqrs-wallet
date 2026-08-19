@@ -21,9 +21,8 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * El consumidor es el unico punto donde el modelo de lectura se actualiza. Si
- * proyecta un evento fuera de orden, el saldo consultado queda equivocado sin que
- * nada falle de forma visible.
+ * The consumer is the only place the read model is updated. If it projects an
+ * out-of-order event, the queried balance is wrong and nothing fails visibly.
  */
 @ExtendWith(MockitoExtension.class)
 class EventConsumerTest {
@@ -60,8 +59,8 @@ class EventConsumerTest {
     }
 
     /**
-     * La cola reintenta y puede reentregar. Sin esta guarda, una reentrega tardia
-     * de un evento anterior sobrescribiria el saldo correcto con uno obsoleto.
+     * The queue retries and may redeliver. Without this guard, a late redelivery
+     * of an earlier event would overwrite the correct balance with a stale one.
      */
     @Test
     void discardsAnEventOlderThanTheCurrentProjection() {
@@ -73,8 +72,8 @@ class EventConsumerTest {
     }
 
     /**
-     * El evento transporta el saldo resultante, no un incremento, de modo que
-     * volver a aplicar el mismo evento deja el mismo estado.
+     * The event carries the resulting balance rather than an increment, so
+     * reapplying the same event leaves the same state.
      */
     @Test
     void reapplyingTheSameEventIsHarmless() {

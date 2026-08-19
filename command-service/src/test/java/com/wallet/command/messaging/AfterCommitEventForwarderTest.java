@@ -17,8 +17,8 @@ import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 
 /**
- * El reenvio ocurre en AFTER_COMMIT: la transaccion de escritura ya termino, asi
- * que no hay nada que revertir si el broker falla.
+ * Forwarding happens on AFTER_COMMIT: the write transaction has already finished,
+ * so there is nothing to roll back if the broker fails.
  */
 @ExtendWith(MockitoExtension.class)
 class AfterCommitEventForwarderTest {
@@ -39,20 +39,20 @@ class AfterCommitEventForwarderTest {
     }
 
     /**
-     * Limitacion conocida y deliberada: si el broker esta caido despues del commit,
-     * el evento se pierde y el read model queda desincronizado de forma permanente.
-     * No se propaga la excepcion porque el dinero ya se movio y reintentar aqui
-     * duplicaria el evento. Cerrar este hueco exige un outbox transaccional, que
-     * este proyecto no implementa.
+     * A known and deliberate limitation: if the broker is down after the commit,
+     * the event is lost and the read model stays permanently out of sync. The
+     * exception is not propagated because the money has already moved, and
+     * retrying here would duplicate the event. Closing this gap requires a
+     * transactional outbox, which this project does not implement.
      *
-     * <p>Este test fija ese contrato: si alguien cambia el comportamiento para que
-     * la excepcion escape, el fallo apareceria en el hilo de commit sin recuperar
-     * el evento perdido.
+     * <p>This test pins that contract: if someone changes the behaviour so the
+     * exception escapes, the failure would surface on the commit thread without
+     * recovering the lost event.
      */
     @Test
     void doesNotPropagateABrokerFailureBecauseTheWriteIsAlreadyCommitted() {
         TransactionPersistedEvent event = event();
-        doThrow(new BrokerUnavailableException("broker caido", new RuntimeException()))
+        doThrow(new BrokerUnavailableException("broker down", new RuntimeException()))
                 .when(eventPublisher).publish(event.payload());
 
         assertThatCode(() -> forwarder.onCommit(event)).doesNotThrowAnyException();

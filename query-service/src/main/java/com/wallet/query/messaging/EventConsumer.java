@@ -22,17 +22,17 @@ public class EventConsumer {
     }
 
     /**
-     * Proyecta el saldo publicado por el lado de escritura.
+     * Projects the balance published by the write side.
      *
-     * <p>La cola reintenta y termina en una DLQ, asi que un mismo evento puede
-     * reentregarse. Como el evento trae el saldo ya calculado y no un delta,
-     * reaplicarlo es inocuo, pero aplicar uno <em>anterior</em> al ya proyectado
-     * dejaria el modelo de lectura con un saldo viejo de forma permanente. Por eso
-     * se descarta todo evento mas antiguo que la proyeccion actual.
+     * <p>The queue retries and ends in a DLQ, so the same event can be
+     * redelivered. Because the event carries the computed balance rather than a
+     * delta, reapplying it is harmless, but applying one <em>older</em> than what
+     * is already projected would leave the read model permanently stale. Any
+     * event older than the current projection is therefore discarded.
      *
-     * <p>La comprobacion lee y luego escribe, de modo que asume un unico consumidor
-     * (la configuracion por defecto). Para consumir en paralelo haria falta una
-     * escritura condicional en la propia base de datos.
+     * <p>The check reads and then writes, so it assumes a single consumer (the
+     * default configuration). Consuming in parallel would require a conditional
+     * write in the database itself.
      */
     @RabbitListener(queues = "${wallet.queue.balance-updated}")
     public void onBalanceUpdated(BalanceUpdatedEvent event) {

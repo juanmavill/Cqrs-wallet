@@ -38,8 +38,8 @@ class BalanceServiceTest {
     }
 
     /**
-     * Una cuenta sin proyeccion no es lo mismo que una cuenta inexistente: puede
-     * existir en el lado de escritura y no haber recibido todavia ningun evento.
+     * An account without a projection is not the same as a non-existent account:
+     * it may exist on the write side and simply not have received an event yet.
      */
     @Test
     void failsWhenTheAccountHasNoProjection() {

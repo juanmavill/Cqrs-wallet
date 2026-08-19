@@ -29,9 +29,9 @@ import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 /**
- * Cubre las reglas del lado de escritura: como se aplica cada operacion sobre el
- * saldo, que se rechaza, y en que casos se emite el evento que alimenta el read
- * model. Un fallo silencioso aqui desincroniza las dos caras del CQRS.
+ * Covers the write-side rules: how each operation is applied to the balance, what
+ * is rejected, and when the event feeding the read model is emitted. A silent
+ * failure here desynchronises the two sides of the CQRS split.
  */
 @ExtendWith(MockitoExtension.class)
 class TransactionServiceTest {
@@ -123,9 +123,10 @@ class TransactionServiceTest {
     }
 
     /**
-     * El saldo se lee con bloqueo pesimista para que dos movimientos simultaneos
-     * sobre la misma cuenta no se pisen. Si alguien lo cambiara por findById, la
-     * regla de fondos suficientes podria evaluarse sobre un saldo obsoleto.
+     * The balance is read under a pessimistic lock so two concurrent movements on
+     * the same account cannot overwrite each other. Were this swapped for
+     * findById, the sufficient-funds rule could be evaluated against a stale
+     * balance.
      */
     @Test
     void balanceIsReadWithAPessimisticLock() {

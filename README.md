@@ -1,59 +1,57 @@
 # CQRS Wallet
 
-Un servicio de billetera que separa las escrituras de las lecturas (CQRS) para
-medir, contra un monolito equivalente, cuanto aporta realmente esa separacion.
+**A wallet service that separates writes from reads (CQRS), measured against an
+equivalent monolith to find out what that separation actually buys.**
 
-El repositorio no es solo una implementacion de CQRS: incluye un **monolito de
-referencia** que resuelve el mismo problema con la misma base de datos, y un
-banco de pruebas de carga que compara ambas arquitecturas bajo la misma carga.
-La conclusion no es que CQRS sea mejor, sino **en que dimension gana y cual es su
-costo**.
-
----
-
-## Que hace
-
-- Registra movimientos de credito y debito sobre cuentas, con validacion de saldo.
-- Mantiene un modelo de lectura desnormalizado para consultar saldos.
-- Propaga los cambios del lado de escritura al de lectura mediante eventos.
-- Expone la misma funcionalidad en un monolito, para comparar.
+This repository is not only a CQRS implementation. It ships a **reference
+monolith** solving the same problem against the same database, and a load-testing
+harness that puts both architectures under identical load. The conclusion is not
+that CQRS wins, but **which dimension it wins on and what it costs**.
 
 ---
 
-## Arquitectura
+## What it does
+
+- Records credit and debit movements against accounts, with balance validation.
+- Maintains a denormalised read model for balance queries.
+- Propagates write-side changes to the read side through events.
+- Exposes the same functionality as a monolith, for comparison.
+
+---
+
+## Architecture
 
 ```mermaid
 flowchart LR
-    C[Cliente] -->|POST /api/transactions| CS[command-service<br/>:8081]
+    C[Client] -->|POST /api/transactions| CS[command-service<br/>:8081]
     C -->|GET /api/balance/:id| QS[query-service<br/>:8082]
 
-    CS -->|escritura transaccional| MY[(MySQL<br/>write model)]
-    CS -.->|BalanceUpdatedEvent<br/>despues del commit| RMQ{{RabbitMQ}}
-    RMQ -.->|consumo| QS
-    QS -->|lectura| MO[(MongoDB<br/>read model)]
+    CS -->|transactional write| MY[(MySQL<br/>write model)]
+    CS -.->|BalanceUpdatedEvent<br/>after commit| RMQ{{RabbitMQ}}
+    RMQ -.->|consume| QS
+    QS -->|read| MO[(MongoDB<br/>read model)]
 
-    C -->|comparacion| MR[monolith-reference<br/>:8080]
+    C -->|comparison| MR[monolith-reference<br/>:8080]
     MR --> MY
 ```
 
-El lado de escritura es la unica fuente de verdad. El lado de lectura es una
-proyeccion que puede ir por detras: el sistema es **consistente en ultima
-instancia**, no inmediatamente.
+The write side is the only source of truth. The read side is a projection that
+may lag: the system is **eventually consistent**, not immediately consistent.
 
 ---
 
-## Resultados medidos
+## Measured results
 
-Comparacion directa monolito vs CQRS con JMeter 5.6.3. Cada nivel de carga corre
-180 s con rampa de 30 s, y el stack se reinicia entre corridas para que ninguna
-arrastre estado de la anterior. Entre 230.000 y 266.000 muestras por corrida en
-local. **Tasa de error 0,00 % en todas las corridas.**
+Direct monolith-vs-CQRS comparison with JMeter 5.6.3. Each load level runs for
+180 s with a 30 s ramp, and the stack is reset between runs so none carries state
+from the previous one. Between 230,000 and 266,000 samples per run locally.
+**Error rate 0.00% across every run.**
 
-### Lecturas: la separacion se nota y escala plano
+### Reads: the separation shows, and stays flat
 
-Latencia p50 de `GET /balance` en local (ms):
+`GET /balance` p50 latency, local (ms):
 
-| Hilos | Monolito | CQRS |
+| Threads | Monolith | CQRS |
 |---:|---:|---:|
 | 50 | 16 | **1** |
 | 100 | 53 | **1** |
@@ -61,31 +59,31 @@ Latencia p50 de `GET /balance` en local (ms):
 | 350 | 216 | **1** |
 | 500 | 315 | **1** |
 
-El monolito se degrada casi 20x entre 50 y 500 usuarios concurrentes. El lado de
-lectura de CQRS **no se mueve**: p50 de 1 ms y p95 de 4 ms en los cinco niveles.
-Las lecturas no compiten con las escrituras porque no tocan la misma base de datos.
+The monolith degrades nearly 20x between 50 and 500 concurrent users. The CQRS
+read side **does not move**: 1 ms p50 and 4 ms p95 at all five levels. Reads no
+longer compete with writes, because they no longer touch the same database.
 
-### Escrituras: ese beneficio se paga
+### Writes: that benefit is paid for
 
-Latencia p50 de `POST /transactions` en local (ms):
+`POST /transactions` p50 latency, local (ms):
 
-| Hilos | Monolito | CQRS | Sobrecosto |
+| Threads | Monolith | CQRS | Overhead |
 |---:|---:|---:|---:|
-| 50 | 56 | 98 | 1,8x |
-| 100 | 91 | 202 | 2,2x |
-| 200 | 156 | 462 | 3,0x |
-| 350 | 270 | 726 | 2,7x |
-| 500 | 365 | 1042 | 2,9x |
+| 50 | 56 | 98 | 1.8x |
+| 100 | 91 | 202 | 2.2x |
+| 200 | 156 | 462 | 3.0x |
+| 350 | 270 | 726 | 2.7x |
+| 500 | 365 | 1042 | 2.9x |
 
-El camino de escritura hace lo mismo que el monolito **y ademas** publica un
-evento. La brecha se ensancha con la carga. A 500 hilos, una escritura CQRS tarda
-casi un segundo contra 365 ms del monolito.
+The write path does everything the monolith does **and also** publishes an event.
+The gap widens with load: at 500 threads a CQRS write takes close to a second
+against the monolith's 365 ms.
 
-### En AWS la ventaja aparece mas tarde
+### On AWS the advantage appears later
 
-Latencia p50 de `GET /balance` sobre EC2 (ms):
+`GET /balance` p50 latency on EC2 (ms):
 
-| Hilos | Monolito | CQRS |
+| Threads | Monolith | CQRS |
 |---:|---:|---:|
 | 50 | 90 | 88 |
 | 100 | 90 | 88 |
@@ -93,104 +91,102 @@ Latencia p50 de `GET /balance` sobre EC2 (ms):
 | 350 | 151 | **89** |
 | 500 | 189 | **89** |
 
-Con poca carga las dos arquitecturas son indistinguibles: la latencia de red
-(~90 ms) domina y esconde cualquier diferencia de diseno. La ventaja de CQRS solo
-emerge a partir de 200 hilos, cuando el monolito empieza a degradarse y el lado
-de lectura sigue plano.
+At low load the two architectures are indistinguishable: network latency
+(~90 ms) dominates and hides any design difference. The CQRS advantage only
+emerges past 200 threads, once the monolith starts to degrade while the read side
+stays flat.
 
-**Lectura de todo esto:** CQRS aqui no es "mas rapido". Cambia latencia de
-escritura y complejidad operativa por lecturas que no se degradan bajo carga. En
-un sistema con pocas lecturas, o desplegado donde la red domina, esa permuta no
-compensa.
+**What this means:** CQRS here is not "faster". It trades write latency and
+operational complexity for reads that do not degrade under load. In a
+read-light system, or deployed where the network dominates, that trade does not
+pay off.
 
-Datos crudos: [`jmeter/sweep-20260510-214833.csv`](jmeter/sweep-20260510-214833.csv)
-(local) y [`jmeter/sweep-aws-20260511-023510.csv`](jmeter/sweep-aws-20260511-023510.csv) (AWS).
+Raw data: [`jmeter/sweep-20260510-214833.csv`](jmeter/sweep-20260510-214833.csv)
+(local) and [`jmeter/sweep-aws-20260511-023510.csv`](jmeter/sweep-aws-20260511-023510.csv) (AWS).
 
-Las cifras miden los caminos de peticion HTTP. La proyeccion asincrona cambio
-despues de estas corridas al anadirse el descarte de eventos atrasados, lo que
-agrega una lectura por evento en el consumidor sin afectar la latencia de las
-peticiones medidas.
+These figures measure the HTTP request paths. The asynchronous projection changed
+after these runs, when the stale-event guard was added; that adds one read per
+event on the consumer without affecting the latency of the measured requests.
 
 ---
 
 ## Stack
 
-| Componente | Tecnologia |
+| Component | Technology |
 |---|---|
-| Lenguaje | Java 17 |
+| Language | Java 17 |
 | Framework | Spring Boot 3.2.5 |
 | Write model | MySQL 8.0 + Spring Data JPA |
 | Read model | MongoDB 7.0 |
-| Mensajeria | RabbitMQ 3.13 |
-| Empaquetado | Docker + Docker Compose |
-| Pruebas de carga | JMeter 5.6.3 |
-| Pruebas | JUnit 5 + Mockito + AssertJ |
+| Messaging | RabbitMQ 3.13 |
+| Packaging | Docker + Docker Compose |
+| Load testing | JMeter 5.6.3 |
+| Tests | JUnit 5 + Mockito + AssertJ |
 
 ---
 
-## Decisiones tecnicas
+## Technical decisions
 
-**Por que dos bases de datos y no una.** El objetivo era aislar la contencion
-entre lecturas y escrituras. Con una sola base, separar los modelos no habria
-cambiado nada medible: seguirian compitiendo por las mismas paginas y bloqueos.
-MongoDB guarda el saldo ya calculado, asi que una consulta es una busqueda por
-clave.
+**Why two databases rather than one.** The goal was to isolate contention between
+reads and writes. With a single database, separating the models would have
+changed nothing measurable: they would still compete for the same pages and
+locks. MongoDB stores the already-computed balance, so a query is a key lookup.
 
-**Por que el evento se publica despues del commit.** `AfterCommitEventForwarder`
-escucha con `@TransactionalEventListener(AFTER_COMMIT)`. Si se publicara dentro de
-la transaccion, un rollback posterior dejaria al read model con un saldo que nunca
-existio. Publicar despues garantiza que solo se propagan hechos confirmados.
+**Why the event is published after commit.** `AfterCommitEventForwarder` listens
+with `@TransactionalEventListener(AFTER_COMMIT)`. Publishing inside the
+transaction would let a later rollback leave the read model holding a balance
+that never existed. Publishing afterwards guarantees only committed facts
+propagate.
 
-**Por que bloqueo pesimista en el saldo.** `AccountRepository.findByIdForUpdate`
-usa `@Lock(PESSIMISTIC_WRITE)`. Sin el, dos debitos simultaneos sobre la misma
-cuenta pueden leer el mismo saldo y validar ambos contra fondos ya comprometidos.
-Con contencion alta sobre la misma fila, un bloqueo optimista con reintentos
-generaria mas trabajo desperdiciado que espera.
+**Why a pessimistic lock on the balance.** `AccountRepository.findByIdForUpdate`
+uses `@Lock(PESSIMISTIC_WRITE)`. Without it, two concurrent debits on the same
+account can read the same balance and both validate against funds that are
+already committed. Under high contention on a single row, optimistic locking with
+retries would burn more work than it saves.
 
-**Por que el consumidor descarta eventos antiguos.** La cola reintenta con
-backoff y termina en una DLQ, asi que un evento puede reentregarse tarde. Como el
-evento lleva el saldo ya calculado y no un incremento, reaplicarlo es inocuo, pero
-aplicar uno *anterior* al ya proyectado dejaria un saldo obsoleto de forma
-permanente. `EventConsumer` compara la marca de tiempo y descarta lo que llega
-atrasado.
+**Why the consumer discards older events.** The queue retries with backoff before
+routing to a DLQ, so an event can be redelivered late. Because the event carries
+the resulting balance rather than a delta, reapplying it is harmless, but applying
+one *older* than the current projection would leave a stale balance permanently.
+`EventConsumer` compares timestamps and drops what arrives late.
 
-**Por que se conserva el monolito.** Sin una linea base medida con la misma carga
-y las mismas herramientas, cualquier afirmacion sobre CQRS seria una suposicion.
-`monolith-reference` existe para que la comparacion sea reproducible.
+**Why the monolith is kept.** Without a baseline measured under the same load with
+the same tooling, any claim about CQRS would be a guess. `monolith-reference`
+exists so the comparison is reproducible.
 
 ---
 
-## Ejecucion local
+## Running it locally
 
-Requisitos: Docker y Docker Compose.
+Requires Docker and Docker Compose.
 
 ```bash
 cp .env.example .env
 docker compose up -d --build
 ```
 
-El compose no trae credenciales por defecto: si falta `.env` la orden falla
-indicando que variable hay que definir. Los seis contenedores declaran
-`healthcheck` y las aplicaciones esperan a que la infraestructura este sana antes
-de arrancar. MySQL se siembra desde `init.sql` con cuentas `ACC001` en adelante.
+The compose file ships no default credentials: if `.env` is missing, the command
+fails naming the variable to define. All six containers declare a `healthcheck`,
+and the applications wait for the infrastructure to be healthy before starting.
+MySQL is seeded from `init.sql` with accounts `ACC001` onwards.
 
-Variables disponibles en [`.env.example`](.env.example): credenciales de MySQL y
-RabbitMQ y nombres de las bases de datos.
+Available variables are listed in [`.env.example`](.env.example): MySQL and
+RabbitMQ credentials and the database names.
 
-| Servicio | URL |
+| Service | URL |
 |---|---|
 | command-service | http://localhost:8081 |
 | query-service | http://localhost:8082 |
 | monolith-reference | http://localhost:8080 |
-| RabbitMQ (consola) | http://localhost:15672 |
+| RabbitMQ console | http://localhost:15672 |
 
-Comprobar que todo respondio:
+Check everything came up:
 
 ```bash
 curl http://localhost:8081/actuator/health
 ```
 
-Para detener y borrar los volumenes:
+Stop and drop the volumes:
 
 ```bash
 docker compose down -v
@@ -200,19 +196,17 @@ docker compose down -v
 
 ## API
 
-### Registrar un movimiento
+### Record a movement
 
 ```bash
-curl -X POST http://localhost:8081/api/transactions \
-  -H "Content-Type: application/json" \
-  -d '{"accountId":"ACC001","amount":250.00,"type":"DEBIT"}'
+curl -X POST http://localhost:8081/api/transactions -H "Content-Type: application/json" -d '{"accountId":"ACC001","amount":250.00,"type":"DEBIT"}'
 ```
 
 ```json
 {"transactionId":"a9e1ab3f-...","status":"SUCCESS","timestamp":"2026-08-16T20:19:05Z"}
 ```
 
-### Consultar el saldo proyectado
+### Query the projected balance
 
 ```bash
 curl http://localhost:8082/api/balance/ACC001
@@ -222,35 +216,35 @@ curl http://localhost:8082/api/balance/ACC001
 {"accountId":"ACC001","balance":9750.00,"lastUpdated":"2026-08-16T20:19:05Z"}
 ```
 
-### Respuestas de error
+### Error responses
 
-| Situacion | HTTP | Codigo |
+| Situation | HTTP | Code |
 |---|---:|---|
-| Saldo insuficiente | 422 | `INSUFFICIENT_FUNDS` |
-| Cuenta inexistente | 404 | `ACCOUNT_NOT_FOUND` |
-| Monto invalido o campo faltante | 400 | `VALIDATION_ERROR` |
-| Sin proyeccion para la cuenta | 404 | `BALANCE_NOT_FOUND` |
+| Insufficient funds | 422 | `INSUFFICIENT_FUNDS` |
+| Unknown account | 404 | `ACCOUNT_NOT_FOUND` |
+| Invalid amount or missing field | 400 | `VALIDATION_ERROR` |
+| No projection for the account | 404 | `BALANCE_NOT_FOUND` |
 
 ---
 
-## Pruebas
+## Tests
 
 ```bash
 mvn test
 ```
 
-15 pruebas en total.
+15 tests in total.
 
-`command-service` (9) cubre las reglas del lado de escritura: credito, debito,
-debito del saldo exacto, rechazo por fondos insuficientes y por cuenta inexistente,
-persistencia del movimiento y uso del bloqueo pesimista. Tambien fija el
-comportamiento del reenvio posterior al commit ante un fallo del broker.
+`command-service` (9) covers the write-side rules: credit, debit, debiting the
+exact balance, rejection for insufficient funds and for an unknown account,
+persistence of the movement, and use of the pessimistic lock. It also pins the
+behaviour of the after-commit forwarder when the broker fails.
 
-`query-service` (6) cubre la proyeccion: creacion de la primera proyeccion,
-aplicacion de un evento mas reciente, descarte de uno atrasado, reaplicacion del
-mismo evento, y la consulta de un saldo inexistente.
+`query-service` (6) covers the projection: creating the first projection,
+applying a newer event, discarding a late one, reapplying the same event, and
+querying a balance that does not exist.
 
-Las pruebas de carga requieren JMeter instalado:
+Load tests need JMeter installed:
 
 ```bash
 ./jmeter/run-fair-benchmark.sh 180 30 "50,100,200,350,500"
@@ -258,25 +252,24 @@ Las pruebas de carga requieren JMeter instalado:
 
 ---
 
-## Limitaciones conocidas
+## Known limitations
 
-- **No hay outbox transaccional.** El lado de consumo si reintenta y descarta a
-  una DLQ, pero el de publicacion no: si RabbitMQ esta caido justo despues del
-  commit, `AfterCommitEventForwarder` registra el error y el evento se pierde, y
-  el saldo proyectado queda desactualizado de forma permanente. Es el hueco mas
-  serio del diseno y cerrarlo exige persistir el evento en la misma transaccion
-  que la escritura.
-- **El read model puede ir por detras.** Una lectura inmediatamente despues de una
-  escritura puede devolver el saldo anterior. Es inherente a CQRS, no un defecto,
-  pero la API no ofrece forma de pedir una lectura consistente.
-- **La guarda de eventos atrasados asume un unico consumidor.** Lee la proyeccion
-  y despues escribe, asi que con varios consumidores en paralelo dos eventos
-  podrian intercalarse. Escalar el consumo exigiria una escritura condicional en
-  la propia base de datos.
-- **`monolith-reference` no tiene pruebas automatizadas.** Existe como linea base
-  de comparacion, no como codigo a evolucionar.
-- **Las credenciales de `.env` van en claro al contenedor.** Es aceptable en local;
-  un despliegue real deberia tomarlas de un gestor de secretos.
-- **Los numeros en AWS provienen de un entorno academico** con instancias
-  limitadas; sirven para comparar las dos arquitecturas entre si, no como
-  referencia absoluta de capacidad.
+- **There is no transactional outbox.** The consuming side does retry and route to
+  a DLQ, but the publishing side does not: if RabbitMQ is down right after the
+  commit, `AfterCommitEventForwarder` logs the error and the event is lost,
+  leaving the projected balance permanently stale. This is the most serious gap
+  in the design, and closing it means persisting the event in the same
+  transaction as the write.
+- **The read model can lag.** A read immediately after a write may return the
+  previous balance. That is inherent to CQRS rather than a defect, but the API
+  offers no way to request a consistent read.
+- **The stale-event guard assumes a single consumer.** It reads the projection and
+  then writes, so with parallel consumers two events could interleave. Scaling
+  consumption would require a conditional write in the database itself.
+- **`monolith-reference` has no automated tests.** It exists as a comparison
+  baseline, not as code to evolve.
+- **`.env` credentials reach the container in clear text.** Acceptable locally; a
+  real deployment should pull them from a secrets manager.
+- **The AWS figures come from an academic environment** with constrained
+  instances. They are useful for comparing the two architectures against each
+  other, not as an absolute capacity reference.

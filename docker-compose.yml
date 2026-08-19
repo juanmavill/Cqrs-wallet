@@ -5,7 +5,7 @@ services:
     container_name: wallet-mysql
     restart: unless-stopped
     environment:
-      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?define MYSQL_ROOT_PASSWORD en .env}
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?set MYSQL_ROOT_PASSWORD in .env}
       MYSQL_DATABASE: ${MYSQL_DATABASE:-wallet_db}
     command:
       - --character-set-server=utf8mb4
@@ -53,8 +53,8 @@ services:
     container_name: wallet-rabbitmq
     restart: unless-stopped
     environment:
-      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?define RABBITMQ_USER en .env}
-      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?define RABBITMQ_PASSWORD en .env}
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:?set RABBITMQ_USER in .env}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:?set RABBITMQ_PASSWORD in .env}
     ports:
       - "5672:5672"
       - "15672:15672"
